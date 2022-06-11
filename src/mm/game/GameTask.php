@@ -9,6 +9,7 @@ use pocketmine\world\{
 use pocketmine\world\sound\{BlazeShootSound, ClickSound, PopSound};
 use pocketmine\scheduler\Task;
 use pocketmine\block\tile\Sign;
+use pocketmine\player\GameMode;
 
 use mm\utils\Vector;
 
@@ -22,6 +23,12 @@ class GameTask extends Task{
 
     public $restartData = [];
 
+    public $phase = 0;
+    
+    public $map = null;
+
+    public $players = [];
+    
     public function __construct(Game $plugin){
         $this->plugin = $plugin;
     }
@@ -69,7 +76,7 @@ class GameTask extends Task{
                     if($this->startTime == 0){
                         $this->plugin->startGame();
                         foreach($this->plugin->players as $player){
-                            $this->plugin->map->addSound(new BlazeShootSound($player->getPosition()->asVector3()));
+                            $this->plugin->map->addSound(new BlazeShootSound());
                         }
                     }
                     $this->startTime--;
@@ -134,8 +141,8 @@ class GameTask extends Task{
                             $murderer->getArmorInventory()->clearAll();
                             $murderer->getCursorInventory()->clearAll();
                             unset($this->plugin->changeInv[$murderer->getName()]);
-                            $murderer->getEffects()->all()->clear();
-                            $murderer->setGamemode(3);
+                            $murderer->getEffects()->clear();
+                            $murderer->setGamemode(GameMode::SPECTATOR());
                             $this->plugin->disconnectPlayer($murderer);
                         }
                         $this->plugin->innocentWin();

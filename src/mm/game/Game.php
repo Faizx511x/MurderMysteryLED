@@ -5,15 +5,20 @@ namespace mm\game;
 use pocketmine\event\Listener;
 use pocketmine\block\Block;
 use pocketmine\item\Item;
+use pocketmine\item\ItemFactory;
+use pocketmine\item\ItemIds;
+
 use pocketmine\event\entity\{
-    EntityLevelChangeEvent,
+    EntityTeleportEvent,
     EntityDamageEvent,
     ProjectileHitBlockEvent,
     EntityDamageByEntityEvent,
     EntityDamageByChildEntityEvent,
     ProjectileLaunchEvent,
-    EntityInventoryChangeEvent
+    EntityInventoryChangeEvent,
+    EntityItemPickupEvent
 };
+
 use pocketmine\event\player\{
     PlayerInteractEvent,
     PlayerQuitEvent,
@@ -21,7 +26,7 @@ use pocketmine\event\player\{
     PlayerChatEvent,
     PlayerDropItemEvent
 };
-use pocketmine\event\inventory\InventoryPickupItemEvent;
+use pocketmine\event\inventory\InventoryTransactionEvent;
 use pocketmine\world\{
     World,
     Position
@@ -45,6 +50,7 @@ use pocketmine\network\mcpe\protocol\types\ScorePacketEntry;
 use mm\MurderMystery;
 use pocketmine\network\mcpe\protocol\PlaySoundPacket;
 use mm\utils\{Vector, SwordEntity};
+use pocketmine\entity\Location;
 use mm\tasks\{ArrowTask, CollideTask, CooldownTask, DespawnSwordEntity, SpawnGoldTask, UpdatePlayerPositionTask};
 
 use Vecnavium\FormsUI\SimpleForm;
@@ -74,6 +80,7 @@ class Game implements Listener{
     public $murderer;
     public $detective;
     public $deadMurderer;
+    public $arrow;
 
     public function __construct(MurderMystery $plugin, array $file){
         $this->plugin = $plugin;
@@ -466,7 +473,7 @@ class Game implements Listener{
         $this->phase = self::PHASE_RESTART;
 
         foreach($this->map->getEntities() as $entity){
-            if(!$entity instanceof Creature && !$entity instanceof Arrow){
+            if(!$entity instanceof SwordEntity && !$entity instanceof Arrow){
                 $entity->close();
             }
         }
@@ -478,7 +485,7 @@ class Game implements Listener{
         return isset($this->players[$player->getName()]);
     }
 
-    public function onInteract(PlayerInteractEvent $event){
+    public function onInteract(PlayerInteractEvent $event, Location $location){
         $player = $event->getPlayer();
         $block = $event->getBlock();
         $level = $player->getWorld();
@@ -495,7 +502,7 @@ class Game implements Listener{
             if($event->getItem()->getId() == \pocketmine\item\ItemIds::IRON_SWORD){
                 if(!isset($this->cooldown[$player->getName()])){
                     if($this->phase == 1){
-                        $this->createSwordEntity($player);
+                        $this->createSwordEntity($player, $location);
                     }
                 }
             }
@@ -528,8 +535,9 @@ class Game implements Listener{
         $this->joinLobby($player);
     }
 
-    public function openTeleporter($player){
+    public function openTeleporter(Player $player){
         $form = new SimpleForm(function(Player $player, $data = null){
+            $players = [];		
             if($data === null){
                 return true;
             }
@@ -572,7 +580,7 @@ class Game implements Listener{
         $this->removeScoreboard($player);
     }
 
-    public function onLevelChange(EntityWorldChangeEvent $event){
+    public function onLevelChange(EntityTeleportEvent $event){
         $player = $event->getEntity();
         if($player instanceof Player){
             if($this->isPlaying($player)){
@@ -631,13 +639,13 @@ class Game implements Listener{
     }
 
     public function onDamage(EntityDamageEvent $event){
-        $player = $event->getEntity();
+        $player = $event->getEntity();	    
         if($player instanceof Player){
             if($this->isPlaying($player)){
                 if($event instanceof EntityDamageByEntityEvent){
                     $murderer = $event->getDamager();
                     if($murderer === $this->getMurderer()){
-                        if($murderer->getInventory()->getItemInHand()->getId() == \pocketmine\item\ItemIds::IRON_SWORD){
+                        if($murderer instanceof Player && $murderer->getInventory()->getItemInHand()->getId() == \pocketmine\item\ItemIds::IRON_SWORD){
                             $this->killPlayer($player);
                         }
                     }
@@ -751,9 +759,12 @@ class Game implements Listener{
         }
     }
 
-    public function onPickup(InventoryPickupItemEvent $event){
-        $player = $event->getInventory()->getHolder();
-        $item = $event->getItem()->getItem()->getId();
+    public function onPickup(EntityItemPickupEvent $event){
+        $player = $event->getOrigin();
+        $item = $event->getItem()->getId();
+
+        if(!$player instanceof Player) return;
+	    
         $inv = $player->getInventory();
 
         if($this->isPlaying($player)){
@@ -793,8 +804,7 @@ class Game implements Listener{
         }
     }
 
-    public function onInvChange(EntityInventoryChangeEvent $event){
-        $player = $event->getEntity();
+    public function onInvChange(Player $player, InventoryTransactionEvent $event){
         if($player instanceof Player){
             if($this->isPlaying($player)){
                 if($this->phase == self::PHASE_GAME){
@@ -859,12 +869,12 @@ class Game implements Listener{
         }
     }
 
-    public function createSwordEntity(Player $player){
+    public function createSwordEntity(Player $player, Location $location){
         $nbt = NBTEntity::createBaseNBT(
             $player->getTargetBlock(1),
             $player->getDirectionVector(),
-            $player->yaw - 75,
-            $player->pitch
+            $location->yaw - 75,
+            $location->pitch
         );
         
         $sword = new SwordEntity($player->getWorld(), $nbt);
@@ -895,7 +905,7 @@ class Game implements Listener{
             $this->task->reloadTimer();
         }
 
-        if(!$this->map instanceof Level){
+        if(!$this->map instanceof World){
             $this->map = $this->plugin->getServer()->getWorldManager()->getWorldByName($this->data["map"]);
         }
 
